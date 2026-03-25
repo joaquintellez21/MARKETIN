@@ -10,6 +10,7 @@ from config import Config
 from client import PolymarketClient
 from risk import RiskManager
 from strategies import MomentumStrategy, MarketMakingStrategy, ValueStrategy, Strategy
+from dashboard import Dashboard
 from logger import setup_logger
 
 logger = setup_logger("bot")
@@ -26,6 +27,7 @@ class PolymarketBot:
         self.risk = RiskManager(self.config)
         self.strategies: list[Strategy] = []
         self.running = False
+        self.dashboard = Dashboard(self.config)
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
@@ -44,40 +46,62 @@ class PolymarketBot:
 
     def run(self, interval: int = 30):
         """Run the bot with the given polling interval (seconds)."""
-        logger.info("=" * 60)
-        logger.info("Polymarket Trading Bot starting")
-        logger.info("Dry run: %s", self.config.dry_run)
-        logger.info("Strategies: %d", len(self.strategies))
-        logger.info("Max position size: $%.2f", self.config.max_position_size)
-        logger.info("Interval: %ds", interval)
-        logger.info("=" * 60)
+        logger.info("Polymarket Trading Bot starting (interval=%ds)", interval)
 
         self._load_positions()
         self.running = True
-        while self.running:
-            try:
-                self.client.clear_cache()
-                self._tick()
-                self._save_positions()
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                logger.error("Error in tick: %s", e, exc_info=True)
 
-            logger.info("Sleeping %ds until next tick...", interval)
-            time.sleep(interval)
+        self.dashboard.log_info(
+            f"Bot iniciado | {len(self.strategies)} estrategias | "
+            f"{'DRY RUN' if self.config.dry_run else 'LIVE'}"
+        )
+
+        self.dashboard.start()
+        try:
+            while self.running:
+                try:
+                    self.client.clear_cache()
+                    tick_start = time.monotonic()
+                    self._tick()
+                    self.dashboard.last_tick_time = time.monotonic() - tick_start
+                    self.dashboard.tick_count += 1
+                    self._save_positions()
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    logger.error("Error in tick: %s", e, exc_info=True)
+                    self.dashboard.log_error(str(e)[:60])
+
+                # Countdown between ticks with live UI updates
+                for remaining in range(interval, 0, -1):
+                    if not self.running:
+                        break
+                    self.dashboard.update(self.risk, self._safe_midpoint)
+                    time.sleep(1)
+        finally:
+            self.dashboard.stop()
 
         logger.info("Bot stopped.")
         self._save_positions()
         self._print_summary()
 
+    def _safe_midpoint(self, token_id: str) -> float:
+        """Get midpoint without raising (for dashboard display)."""
+        try:
+            return self.client.get_midpoint(token_id)
+        except Exception:
+            pos = self.risk.positions.get(token_id)
+            return pos.entry_price if pos else 0.0
+
     def _tick(self):
         """Single iteration: fetch markets, evaluate strategies, execute."""
-        logger.info("--- Tick ---")
-
-        # 1. Fetch more markets for better coverage
+        # 1. Fetch markets
         markets = self.client.get_markets(limit=50)
-        logger.info("Fetched %d markets", len(markets))
+        self.dashboard.markets_scanned = len(markets)
+        self.dashboard.log_info(f"Escaneando {len(markets)} mercados...")
+
+        # Track cache hits for stats
+        calls_before = len(self.client._book_cache)
 
         # 2. Check existing positions for stop-loss / take-profit
         self._check_risk()
@@ -86,7 +110,6 @@ class PolymarketBot:
         for market in markets:
             tokens = market.get("clobTokenIds") or market.get("tokens", [])
 
-            # Gamma API returns clobTokenIds as a JSON string: '["id1", "id2"]'
             if isinstance(tokens, str):
                 try:
                     tokens = json.loads(tokens)
@@ -100,6 +123,13 @@ class PolymarketBot:
                 if not token_id:
                     continue
                 self._evaluate_market(token_id, market)
+
+        # Update cache savings stat
+        calls_after = len(self.client._book_cache)
+        self.dashboard.api_calls_saved += max(0, calls_after - calls_before)
+
+        # Update dashboard
+        self.dashboard.update(self.risk, self._safe_midpoint)
 
     def _evaluate_market(self, token_id: str, market_info: dict):
         """Run all strategies on a single token and execute signals."""
@@ -115,11 +145,15 @@ class PolymarketBot:
         size = signal_data["size"]
         reason = signal_data.get("reason", "")
 
+        self.dashboard.log_signal(action, token_id, price, reason)
         logger.info("Signal: %s %s %.2f @ $%.4f - %s", action, token_id[:12], size, price, reason)
 
         try:
             if action == "BUY":
                 if not self.risk.can_open_position(size, price):
+                    self.dashboard.log_rejected(
+                        f"Exposicion ${self.risk.total_exposure:.2f} + ${size * price:.2f} > max ${self.config.max_position_size:.2f}"
+                    )
                     return
                 result = self.client.buy(token_id, price, size)
                 if result is not None:
@@ -127,14 +161,17 @@ class PolymarketBot:
                         token_id, "BUY", price, size,
                         market_name=market_info.get("question", ""),
                     )
+                    self.dashboard.log_trade("BUY", token_id, price, size)
 
             elif action == "SELL":
                 result = self.client.sell(token_id, price, size)
                 if result is not None:
                     self.risk.close_position(token_id)
+                    self.dashboard.log_trade("SELL", token_id, price, size)
 
         except Exception as e:
             logger.warning("Order failed for %s: %s", token_id[:12], e)
+            self.dashboard.log_error(f"Order failed: {e}"[:55])
 
     def _check_risk(self):
         """Check all positions for stop-loss and take-profit."""
@@ -144,14 +181,21 @@ class PolymarketBot:
             except Exception:
                 continue
 
+            pos = self.risk.positions[token_id]
+
             if self.risk.check_stop_loss(token_id, mid):
-                pos = self.risk.positions[token_id]
+                loss_pct = ((pos.entry_price - mid) / pos.entry_price) * 100
+                self.dashboard.log_stop_loss(token_id, loss_pct)
                 self.client.sell(token_id, mid, pos.size)
                 self.risk.close_position(token_id)
+                self.dashboard.log_trade("SELL", token_id, mid, pos.size)
+
             elif self.risk.check_take_profit(token_id, mid):
-                pos = self.risk.positions[token_id]
+                gain_pct = ((mid - pos.entry_price) / pos.entry_price) * 100
+                self.dashboard.log_take_profit(token_id, gain_pct)
                 self.client.sell(token_id, mid, pos.size)
                 self.risk.close_position(token_id)
+                self.dashboard.log_trade("SELL", token_id, mid, pos.size)
 
     # ── Position Persistence ──────────────────────────────────────
 
@@ -189,6 +233,10 @@ class PolymarketBot:
                 )
                 self.risk.positions[tid] = pos
                 self.risk.total_exposure += pos.size * pos.entry_price
+            if data:
+                self.dashboard.log_info(
+                    f"Cargadas {len(data)} posiciones (${self.risk.total_exposure:.2f})"
+                )
             logger.info("Loaded %d positions from disk (exposure: $%.2f)",
                         len(data), self.risk.total_exposure)
         except Exception as e:
@@ -208,7 +256,6 @@ def main():
     bot = PolymarketBot(config)
 
     # Add strategies based on balance size
-    # Market Making needs $50+ to be effective, skip for small balances
     bot.add_strategy(MomentumStrategy(bot.client, bot.risk))
     bot.add_strategy(ValueStrategy(bot.client, bot.risk))
     if config.max_position_size >= 50:
