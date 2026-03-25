@@ -229,7 +229,7 @@ class Dashboard:
         self._live = Live(
             console=console,
             refresh_per_second=1,
-            screen=True,
+            screen=False,
         )
         self._live.start()
         return self._live
