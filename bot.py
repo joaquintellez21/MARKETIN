@@ -1,6 +1,7 @@
 """Main bot engine – orchestrates strategies, risk, and execution."""
 
 import json
+import os
 import time
 import signal
 import sys
@@ -12,6 +13,8 @@ from strategies import MomentumStrategy, MarketMakingStrategy, ValueStrategy, St
 from logger import setup_logger
 
 logger = setup_logger("bot")
+
+POSITIONS_FILE = "positions.json"
 
 
 class PolymarketBot:
@@ -39,19 +42,23 @@ class PolymarketBot:
 
     # ── Main Loop ─────────────────────────────────────────────────
 
-    def run(self, interval: int = 60):
+    def run(self, interval: int = 30):
         """Run the bot with the given polling interval (seconds)."""
         logger.info("=" * 60)
         logger.info("Polymarket Trading Bot starting")
         logger.info("Dry run: %s", self.config.dry_run)
         logger.info("Strategies: %d", len(self.strategies))
         logger.info("Max position size: $%.2f", self.config.max_position_size)
+        logger.info("Interval: %ds", interval)
         logger.info("=" * 60)
 
+        self._load_positions()
         self.running = True
         while self.running:
             try:
+                self.client.clear_cache()
                 self._tick()
+                self._save_positions()
             except KeyboardInterrupt:
                 break
             except Exception as e:
@@ -61,14 +68,15 @@ class PolymarketBot:
             time.sleep(interval)
 
         logger.info("Bot stopped.")
+        self._save_positions()
         self._print_summary()
 
     def _tick(self):
         """Single iteration: fetch markets, evaluate strategies, execute."""
         logger.info("--- Tick ---")
 
-        # 1. Fetch markets
-        markets = self.client.get_markets(limit=20)
+        # 1. Fetch more markets for better coverage
+        markets = self.client.get_markets(limit=50)
         logger.info("Fetched %d markets", len(markets))
 
         # 2. Check existing positions for stop-loss / take-profit
@@ -145,6 +153,47 @@ class PolymarketBot:
                 self.client.sell(token_id, mid, pos.size)
                 self.risk.close_position(token_id)
 
+    # ── Position Persistence ──────────────────────────────────────
+
+    def _save_positions(self):
+        """Save open positions to disk so they survive restarts."""
+        data = {}
+        for tid, pos in self.risk.positions.items():
+            data[tid] = {
+                "side": pos.side,
+                "entry_price": pos.entry_price,
+                "size": pos.size,
+                "market_name": pos.market_name,
+            }
+        try:
+            with open(POSITIONS_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.warning("Failed to save positions: %s", e)
+
+    def _load_positions(self):
+        """Load positions from disk on startup."""
+        if not os.path.exists(POSITIONS_FILE):
+            return
+        try:
+            with open(POSITIONS_FILE) as f:
+                data = json.load(f)
+            from risk import Position
+            for tid, info in data.items():
+                pos = Position(
+                    token_id=tid,
+                    side=info["side"],
+                    entry_price=info["entry_price"],
+                    size=info["size"],
+                    market_name=info.get("market_name", ""),
+                )
+                self.risk.positions[tid] = pos
+                self.risk.total_exposure += pos.size * pos.entry_price
+            logger.info("Loaded %d positions from disk (exposure: $%.2f)",
+                        len(data), self.risk.total_exposure)
+        except Exception as e:
+            logger.warning("Failed to load positions: %s", e)
+
     def _print_summary(self):
         summary = self.risk.get_portfolio_summary()
         logger.info("-- Portfolio Summary --")
@@ -165,7 +214,7 @@ def main():
     if config.max_position_size >= 50:
         bot.add_strategy(MarketMakingStrategy(bot.client, bot.risk))
 
-    bot.run(interval=60)
+    bot.run(interval=30)
 
 
 if __name__ == "__main__":

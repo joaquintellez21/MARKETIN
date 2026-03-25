@@ -1,5 +1,6 @@
 """Polymarket API client wrapper."""
 
+import time
 import requests
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
@@ -16,6 +17,8 @@ class PolymarketClient:
 
     def __init__(self, config: Config):
         self.config = config
+        self._book_cache: dict[str, tuple[float, dict]] = {}  # token_id → (timestamp, book)
+        self._cache_ttl: float = 10.0  # seconds
 
         if config.derive_api_creds:
             # Gmail/Google (Privy) accounts: derive CLOB creds from private key
@@ -70,16 +73,24 @@ class PolymarketClient:
         resp.raise_for_status()
         return resp.json()
 
+    def clear_cache(self):
+        """Clear the orderbook cache (call at the start of each tick)."""
+        self._book_cache.clear()
+
     def get_orderbook(self, token_id: str) -> dict:
-        """Get the order book for a token."""
-        return self.client.get_order_book(token_id)
+        """Get the order book for a token (cached within a tick)."""
+        now = time.monotonic()
+        cached = self._book_cache.get(token_id)
+        if cached and (now - cached[0]) < self._cache_ttl:
+            return cached[1]
+        book = self.client.get_order_book(token_id)
+        self._book_cache[token_id] = (now, book)
+        return book
 
     def get_midpoint(self, token_id: str) -> float:
         """Get the midpoint price for a token."""
-        book = self.get_orderbook(token_id)
-        best_bid = float(book.bids[0].price) if book.bids else 0.0
-        best_ask = float(book.asks[0].price) if book.asks else 1.0
-        return (best_bid + best_ask) / 2
+        price_data = self.get_price(token_id)
+        return (price_data["bid"] + price_data["ask"]) / 2
 
     def get_price(self, token_id: str) -> dict:
         """Get best bid/ask for a token."""
