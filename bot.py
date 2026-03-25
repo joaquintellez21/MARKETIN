@@ -68,6 +68,14 @@ class PolymarketBot:
             f"Bot iniciado | {len(self.strategies)} estrategias | "
             f"{'DRY RUN' if self.config.dry_run else 'LIVE'} | {ai_status} | {ws_status}"
         )
+        logger.info(
+            "Config: scan=%d | max_pos=%d | momentum(buy<%.2f,vol>%.0f) | "
+            "value(price<%.2f,vol>%.0f) | weather(edge>%.0f%%)",
+            self.config.scan_limit, self.config.max_open_positions,
+            self.config.momentum_buy_below, self.config.momentum_min_volume,
+            self.config.value_max_price, self.config.value_min_volume,
+            self.config.weather_min_edge * 100,
+        )
 
         self.dashboard.start()
         try:
@@ -111,7 +119,7 @@ class PolymarketBot:
     def _tick(self):
         """Single iteration: fetch markets, evaluate strategies, execute."""
         # 1. Fetch markets
-        markets = self.client.get_markets(limit=50)
+        markets = self.client.get_markets(limit=self.config.scan_limit)
         self.dashboard.markets_scanned = len(markets)
         self.dashboard.log_info(f"Escaneando {len(markets)} mercados...")
 
@@ -304,9 +312,22 @@ def main():
     config = Config()
     bot = PolymarketBot(config)
 
-    # Add strategies based on balance size
-    bot.add_strategy(MomentumStrategy(bot.client, bot.risk))
-    bot.add_strategy(ValueStrategy(bot.client, bot.risk))
+    # Add strategies with configurable parameters
+    bot.add_strategy(MomentumStrategy(
+        bot.client, bot.risk,
+        buy_below=config.momentum_buy_below,
+        sell_above=config.momentum_sell_above,
+        min_volume=config.momentum_min_volume,
+        max_spread=config.momentum_max_spread,
+        max_positions=config.max_open_positions,
+    ))
+    bot.add_strategy(ValueStrategy(
+        bot.client, bot.risk,
+        min_volume=config.value_min_volume,
+        max_price=config.value_max_price,
+        max_spread=config.value_max_spread,
+        max_positions=config.max_open_positions,
+    ))
     if config.max_position_size >= 50:
         bot.add_strategy(MarketMakingStrategy(bot.client, bot.risk))
 
@@ -315,6 +336,7 @@ def main():
         bot.client, bot.risk,
         min_edge=config.weather_min_edge,
         cities=[c.strip() for c in config.weather_cities],
+        max_positions=config.max_open_positions,
     ))
 
     bot.run(interval=config.poll_interval)

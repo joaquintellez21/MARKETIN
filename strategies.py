@@ -28,20 +28,22 @@ class MomentumStrategy(Strategy):
     """Buy tokens with low price and decent volume; sell when target is hit."""
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
-                 buy_below: float = 0.35, sell_above: float = 0.65,
-                 min_volume: float = 5000, max_spread: float = 0.06):
+                 buy_below: float = 0.45, sell_above: float = 0.60,
+                 min_volume: float = 1000, max_spread: float = 0.08,
+                 max_positions: int = 4):
         super().__init__(client, risk)
         self.buy_below = buy_below
         self.sell_above = sell_above
         self.min_volume = min_volume
         self.max_spread = max_spread
+        self.max_positions = max_positions
 
     def evaluate(self, token_id: str, market_info: dict) -> list[dict]:
         signals = []
         market_name = market_info.get("question", "Unknown")
 
         # Skip if we already have too many open positions
-        if len(self.risk.positions) >= 2 and token_id not in self.risk.positions:
+        if len(self.risk.positions) >= self.max_positions and token_id not in self.risk.positions:
             return signals
 
         # Require minimum volume for safety
@@ -133,19 +135,20 @@ class ValueStrategy(Strategy):
     """Buy high-volume markets with very low prices (potential undervaluation)."""
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
-                 min_volume: float = 10000, max_price: float = 0.25,
-                 max_spread: float = 0.05):
+                 min_volume: float = 2000, max_price: float = 0.35,
+                 max_spread: float = 0.08, max_positions: int = 4):
         super().__init__(client, risk)
         self.min_volume = min_volume
         self.max_price = max_price
         self.max_spread = max_spread
+        self.max_positions = max_positions
 
     def evaluate(self, token_id: str, market_info: dict) -> list[dict]:
         signals = []
         market_name = market_info.get("question", "Unknown")
 
         # Skip if we already have too many open positions
-        if len(self.risk.positions) >= 2 and token_id not in self.risk.positions:
+        if len(self.risk.positions) >= self.max_positions and token_id not in self.risk.positions:
             return signals
 
         volume = float(market_info.get("volume", 0) or 0)

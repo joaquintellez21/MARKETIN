@@ -46,8 +46,19 @@ class Config:
     use_ai_filter: bool = os.getenv("USE_AI_FILTER", "true").lower() == "true"
     min_confidence: float = float(os.getenv("MIN_CONFIDENCE", "0.70"))
 
+    # Strategy tuning
+    max_open_positions: int = int(os.getenv("MAX_OPEN_POSITIONS", "4"))
+    scan_limit: int = int(os.getenv("SCAN_LIMIT", "100"))
+    momentum_buy_below: float = float(os.getenv("MOMENTUM_BUY_BELOW", "0.45"))
+    momentum_sell_above: float = float(os.getenv("MOMENTUM_SELL_ABOVE", "0.60"))
+    momentum_min_volume: float = float(os.getenv("MOMENTUM_MIN_VOLUME", "1000"))
+    momentum_max_spread: float = float(os.getenv("MOMENTUM_MAX_SPREAD", "0.08"))
+    value_min_volume: float = float(os.getenv("VALUE_MIN_VOLUME", "2000"))
+    value_max_price: float = float(os.getenv("VALUE_MAX_PRICE", "0.35"))
+    value_max_spread: float = float(os.getenv("VALUE_MAX_SPREAD", "0.08"))
+
     # Weather strategy
-    weather_min_edge: float = float(os.getenv("WEATHER_MIN_EDGE", "0.50"))
+    weather_min_edge: float = float(os.getenv("WEATHER_MIN_EDGE", "0.20"))
     weather_cities: list = field(
         default_factory=lambda: os.getenv("WEATHER_CITIES", "Chicago,New York,Los Angeles").split(",")
     )

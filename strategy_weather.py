@@ -80,12 +80,13 @@ class WeatherStrategy(Strategy):
     """
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
-                 min_edge: float = 0.50, cities: list[str] | None = None,
-                 max_spread: float = 0.06):
+                 min_edge: float = 0.20, cities: list[str] | None = None,
+                 max_spread: float = 0.08, max_positions: int = 4):
         super().__init__(client, risk)
         self.min_edge = min_edge
         self.cities = cities or ["Chicago", "New York", "Los Angeles"]
         self.max_spread = max_spread
+        self.max_positions = max_positions
         # Cache NOAA forecasts to avoid hammering the API (city -> (timestamp, data))
         self._forecast_cache: dict[str, tuple[float, dict]] = {}
         self._cache_ttl = 600  # 10 minutes
@@ -95,7 +96,7 @@ class WeatherStrategy(Strategy):
         question = market_info.get("question", "")
 
         # Skip if already in too many positions
-        if len(self.risk.positions) >= 2 and token_id not in self.risk.positions:
+        if len(self.risk.positions) >= self.max_positions and token_id not in self.risk.positions:
             return signals
 
         # Step 1: Is this a weather/temperature market?
