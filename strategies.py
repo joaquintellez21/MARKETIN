@@ -25,16 +25,30 @@ class Strategy(ABC):
 
 
 class MomentumStrategy(Strategy):
-    """Buy tokens trending upward below a threshold; sell when above."""
+    """Buy tokens with low price and decent volume; sell when target is hit."""
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
-                 buy_below: float = 0.40, sell_above: float = 0.75):
+                 buy_below: float = 0.35, sell_above: float = 0.65,
+                 min_volume: float = 5000, max_spread: float = 0.06):
         super().__init__(client, risk)
         self.buy_below = buy_below
         self.sell_above = sell_above
+        self.min_volume = min_volume
+        self.max_spread = max_spread
 
     def evaluate(self, token_id: str, market_info: dict) -> list[dict]:
         signals = []
+        market_name = market_info.get("question", "Unknown")
+
+        # Skip if we already have too many open positions
+        if len(self.risk.positions) >= 2 and token_id not in self.risk.positions:
+            return signals
+
+        # Require minimum volume for safety
+        volume = float(market_info.get("volume", 0) or 0)
+        if volume < self.min_volume:
+            return signals
+
         try:
             price_data = self.client.get_price(token_id)
             mid = (price_data["bid"] + price_data["ask"]) / 2
@@ -42,28 +56,38 @@ class MomentumStrategy(Strategy):
             logger.error("Failed to get price for %s: %s", token_id[:12], e)
             return signals
 
-        if mid < self.buy_below and price_data["spread"] < 0.10:
+        # Skip wide spreads (illiquid markets)
+        if price_data["spread"] > self.max_spread:
+            return signals
+
+        # BUY: cheap token with tight spread in active market
+        if mid < self.buy_below and token_id not in self.risk.positions:
             signals.append({
                 "action": "BUY",
                 "price": price_data["ask"],
                 "size": self.client.config.order_size,
-                "reason": f"Momentum: price ${mid:.4f} < buy_below ${self.buy_below}",
+                "reason": f"Momentum: {market_name[:50]} @ ${mid:.4f} (vol ${volume:.0f})",
             })
 
+        # SELL: price rose above target
         if mid > self.sell_above and token_id in self.risk.positions:
             pos = self.risk.positions[token_id]
             signals.append({
                 "action": "SELL",
                 "price": price_data["bid"],
                 "size": pos.size,
-                "reason": f"Momentum: price ${mid:.4f} > sell_above ${self.sell_above}",
+                "reason": f"Momentum SELL: {market_name[:50]} @ ${mid:.4f}",
             })
 
         return signals
 
 
 class MarketMakingStrategy(Strategy):
-    """Place buy and sell orders around the midpoint to capture the spread."""
+    """Place buy and sell orders around the midpoint to capture the spread.
+
+    NOTE: Requires significant capital to be effective. Not recommended
+    for balances under $50.
+    """
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
                  spread_offset: float = 0.02, min_spread: float = 0.03):
@@ -80,7 +104,6 @@ class MarketMakingStrategy(Strategy):
             return signals
 
         if price_data["spread"] < self.min_spread:
-            logger.debug("Spread too tight (%.4f) for %s, skipping", price_data["spread"], token_id[:12])
             return signals
 
         mid = (price_data["bid"] + price_data["ask"]) / 2
@@ -107,16 +130,24 @@ class MarketMakingStrategy(Strategy):
 
 
 class ValueStrategy(Strategy):
-    """Buy markets that appear mispriced based on a simple threshold analysis."""
+    """Buy high-volume markets with very low prices (potential undervaluation)."""
 
     def __init__(self, client: PolymarketClient, risk: RiskManager,
-                 min_volume: float = 1000, max_price: float = 0.30):
+                 min_volume: float = 10000, max_price: float = 0.25,
+                 max_spread: float = 0.05):
         super().__init__(client, risk)
         self.min_volume = min_volume
         self.max_price = max_price
+        self.max_spread = max_spread
 
     def evaluate(self, token_id: str, market_info: dict) -> list[dict]:
         signals = []
+        market_name = market_info.get("question", "Unknown")
+
+        # Skip if we already have too many open positions
+        if len(self.risk.positions) >= 2 and token_id not in self.risk.positions:
+            return signals
+
         volume = float(market_info.get("volume", 0) or 0)
         if volume < self.min_volume:
             return signals
@@ -128,12 +159,16 @@ class ValueStrategy(Strategy):
             logger.error("Failed to get price for %s: %s", token_id[:12], e)
             return signals
 
-        if mid <= self.max_price and price_data["spread"] < 0.08:
+        # Only buy if spread is tight (liquid market)
+        if price_data["spread"] > self.max_spread:
+            return signals
+
+        if mid <= self.max_price and token_id not in self.risk.positions:
             signals.append({
                 "action": "BUY",
                 "price": price_data["ask"],
                 "size": self.client.config.order_size,
-                "reason": f"Value: low price ${mid:.4f}, volume ${volume:.0f}",
+                "reason": f"Value: {market_name[:50]} @ ${mid:.4f} (vol ${volume:.0f})",
             })
 
         return signals

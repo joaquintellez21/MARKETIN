@@ -158,10 +158,12 @@ def main():
     config = Config()
     bot = PolymarketBot(config)
 
-    # Add default strategies
+    # Add strategies based on balance size
+    # Market Making needs $50+ to be effective, skip for small balances
     bot.add_strategy(MomentumStrategy(bot.client, bot.risk))
-    bot.add_strategy(MarketMakingStrategy(bot.client, bot.risk))
     bot.add_strategy(ValueStrategy(bot.client, bot.risk))
+    if config.max_position_size >= 50:
+        bot.add_strategy(MarketMakingStrategy(bot.client, bot.risk))
 
     bot.run(interval=60)
 
