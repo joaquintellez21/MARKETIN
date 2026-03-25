@@ -18,9 +18,10 @@ def setup_logger(name: str = "polymarket_bot") -> logging.Logger:
 
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(formatter)
+        console.encoding = "utf-8"
         logger.addHandler(console)
 
-        file_handler = logging.FileHandler("bot.log")
+        file_handler = logging.FileHandler("bot.log", encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

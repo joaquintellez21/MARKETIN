@@ -1,5 +1,6 @@
 """Main bot engine – orchestrates strategies, risk, and execution."""
 
+import json
 import time
 import signal
 import sys
@@ -64,7 +65,7 @@ class PolymarketBot:
 
     def _tick(self):
         """Single iteration: fetch markets, evaluate strategies, execute."""
-        logger.info("─── Tick ───")
+        logger.info("--- Tick ---")
 
         # 1. Fetch markets
         markets = self.client.get_markets(limit=20)
@@ -76,9 +77,15 @@ class PolymarketBot:
         # 3. Evaluate strategies on each market
         for market in markets:
             tokens = market.get("clobTokenIds") or market.get("tokens", [])
+
+            # Gamma API returns clobTokenIds as a JSON string: '["id1", "id2"]'
             if isinstance(tokens, str):
-                tokens = [tokens]
-            elif isinstance(tokens, list) and tokens and isinstance(tokens[0], dict):
+                try:
+                    tokens = json.loads(tokens)
+                except (json.JSONDecodeError, TypeError):
+                    tokens = [tokens]
+
+            if isinstance(tokens, list) and tokens and isinstance(tokens[0], dict):
                 tokens = [t.get("token_id", t.get("tokenId", "")) for t in tokens]
 
             for token_id in tokens:
@@ -136,7 +143,7 @@ class PolymarketBot:
 
     def _print_summary(self):
         summary = self.risk.get_portfolio_summary()
-        logger.info("── Portfolio Summary ──")
+        logger.info("-- Portfolio Summary --")
         logger.info("Exposure: $%.2f / $%.2f", summary["total_exposure"], summary["max_allowed"])
         logger.info("Open positions: %d", summary["open_positions"])
         for tid, info in summary["positions"].items():
