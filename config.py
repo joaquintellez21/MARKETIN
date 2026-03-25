@@ -32,10 +32,10 @@ class Config:
     chain_id: int = int(os.getenv("CHAIN_ID", "137"))
 
     # Trading
-    max_position_size: float = float(os.getenv("MAX_POSITION_SIZE", "100"))
+    max_position_size: float = float(os.getenv("MAX_POSITION_SIZE", "17"))
     stop_loss_percent: float = float(os.getenv("STOP_LOSS_PERCENT", "10"))
     take_profit_percent: float = float(os.getenv("TAKE_PROFIT_PERCENT", "20"))
-    order_size: float = float(os.getenv("ORDER_SIZE", "10"))
+    order_size: float = float(os.getenv("ORDER_SIZE", "5"))
     dry_run: bool = os.getenv("DRY_RUN", "true").lower() == "true"
 
     # Logging
