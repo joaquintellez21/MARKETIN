@@ -9,11 +9,16 @@ load_dotenv()
 
 @dataclass
 class Config:
-    # API credentials
+    # API credentials – traditional CLOB auth
     api_key: str = os.getenv("POLYMARKET_API_KEY", "")
     secret: str = os.getenv("POLYMARKET_SECRET", "")
     passphrase: str = os.getenv("POLYMARKET_PASSPHRASE", "")
     private_key: str = os.getenv("PRIVATE_KEY", "")
+
+    # Alternative auth – for Gmail/Google (Privy) accounts
+    # When secret & passphrase are empty, the bot will derive CLOB creds
+    # automatically from the private key.
+    derive_api_creds: bool = not os.getenv("POLYMARKET_SECRET", "")
 
     # Chain
     chain_id: int = int(os.getenv("CHAIN_ID", "137"))

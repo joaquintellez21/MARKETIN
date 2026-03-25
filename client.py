@@ -16,16 +16,37 @@ class PolymarketClient:
 
     def __init__(self, config: Config):
         self.config = config
-        self.client = ClobClient(
-            config.clob_api_url,
-            key=config.private_key,
-            chain_id=config.chain_id,
-            creds={
-                "apiKey": config.api_key,
-                "secret": config.secret,
-                "passphrase": config.passphrase,
-            },
-        )
+
+        if config.derive_api_creds:
+            # Gmail/Google (Privy) accounts: derive CLOB creds from private key
+            logger.info("No secret/passphrase found – deriving API credentials from private key...")
+            self.client = ClobClient(
+                config.clob_api_url,
+                key=config.private_key,
+                chain_id=config.chain_id,
+            )
+            try:
+                creds = self.client.derive_api_key()
+                logger.info("API credentials derived successfully")
+            except Exception:
+                logger.info("No existing creds, creating new API key...")
+                creds = self.client.create_api_key()
+                logger.info("API credentials created successfully")
+
+            self.client.set_api_creds(creds)
+        else:
+            # Traditional CLOB auth with API Key + Secret + Passphrase
+            self.client = ClobClient(
+                config.clob_api_url,
+                key=config.private_key,
+                chain_id=config.chain_id,
+                creds={
+                    "apiKey": config.api_key,
+                    "secret": config.secret,
+                    "passphrase": config.passphrase,
+                },
+            )
+
         logger.info("Polymarket client initialized (dry_run=%s)", config.dry_run)
 
     # ── Market Data ───────────────────────────────────────────────

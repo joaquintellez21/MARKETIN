@@ -92,18 +92,17 @@ Espera a que termine. Veran varias lineas de texto. Esto es normal.
 2. Crea una cuenta (puedes conectar una wallet de MetaMask o crear una con email)
 3. Deposita fondos (USDC en la red Polygon) -- puedes empezar con poco, como $10
 
-### 5b. Obtener tus credenciales de la API
-1. Ve a https://polymarket.com
-2. Inicia sesion
-3. Ve a la seccion de developer / API de tu perfil
-4. Genera una API Key -- te daran 3 valores:
-   - **API Key** (una cadena larga de letras y numeros)
-   - **Secret** (otra cadena larga)
-   - **Passphrase** (otra cadena)
-5. Guarda estos 3 valores en un lugar seguro. Los necesitaras en el siguiente paso.
+### 5b. Obtener tu clave privada (Private Key)
 
-### 5c. Tu clave privada (Private Key)
-- Si usas MetaMask: Haz clic en los 3 puntos > Detalles de cuenta > Exportar clave privada
+**Si te registraste con Gmail/Google (Privy):**
+- Tu wallet fue creada automaticamente por Polymarket
+- Busca en la configuracion de tu cuenta la opcion para exportar tu clave privada
+- Solo necesitas la PRIVATE_KEY. El bot derivara el resto automaticamente.
+
+**Si usas MetaMask:**
+- Haz clic en los 3 puntos > Detalles de cuenta > Exportar clave privada
+- Opcionalmente, genera credenciales CLOB (API Key + Secret + Passphrase) desde la seccion developer
+
 - **NUNCA compartas tu clave privada con nadie**
 - **NUNCA la subas a internet**
 
@@ -126,26 +125,39 @@ cp .env.example .env
 
 3. Abre el archivo `.env` con cualquier editor de texto (Notepad, TextEdit, VS Code, etc.)
 
-4. Reemplaza los valores. El archivo se vera asi:
+4. Reemplaza los valores segun tu tipo de cuenta:
 
+**Si usas Gmail/Google (Privy) — solo necesitas tu clave privada:**
 ```
-# Polymarket API Configuration
-POLYMARKET_API_KEY=aqui_pega_tu_api_key
-POLYMARKET_SECRET=aqui_pega_tu_secret
-POLYMARKET_PASSPHRASE=aqui_pega_tu_passphrase
 PRIVATE_KEY=aqui_pega_tu_clave_privada
 
-# Chain Configuration (NO TOQUES ESTO)
-CHAIN_ID=137
+# Deja estos vacios — el bot deriva las credenciales automaticamente
+POLYMARKET_API_KEY=
+POLYMARKET_SECRET=
+POLYMARKET_PASSPHRASE=
 
-# Trading Configuration
+CHAIN_ID=137
 MAX_POSITION_SIZE=100
 STOP_LOSS_PERCENT=10
 TAKE_PROFIT_PERCENT=20
 ORDER_SIZE=10
 DRY_RUN=true
+LOG_LEVEL=INFO
+```
 
-# Logging
+**Si usas MetaMask (CLOB tradicional) — rellena los 4 valores:**
+```
+PRIVATE_KEY=aqui_pega_tu_clave_privada
+POLYMARKET_API_KEY=aqui_pega_tu_api_key
+POLYMARKET_SECRET=aqui_pega_tu_secret
+POLYMARKET_PASSPHRASE=aqui_pega_tu_passphrase
+
+CHAIN_ID=137
+MAX_POSITION_SIZE=100
+STOP_LOSS_PERCENT=10
+TAKE_PROFIT_PERCENT=20
+ORDER_SIZE=10
+DRY_RUN=true
 LOG_LEVEL=INFO
 ```
 
