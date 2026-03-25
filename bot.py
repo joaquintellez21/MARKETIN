@@ -10,6 +10,7 @@ from config import Config
 from client import PolymarketClient
 from risk import RiskManager
 from strategies import MomentumStrategy, MarketMakingStrategy, ValueStrategy, Strategy
+from strategy_weather import WeatherStrategy
 from dashboard import Dashboard
 from logger import setup_logger
 
@@ -260,6 +261,13 @@ def main():
     bot.add_strategy(ValueStrategy(bot.client, bot.risk))
     if config.max_position_size >= 50:
         bot.add_strategy(MarketMakingStrategy(bot.client, bot.risk))
+
+    # Weather strategy – uses NOAA public forecasts
+    bot.add_strategy(WeatherStrategy(
+        bot.client, bot.risk,
+        min_edge=config.weather_min_edge,
+        cities=[c.strip() for c in config.weather_cities],
+    ))
 
     bot.run(interval=30)
 

@@ -41,6 +41,12 @@ class Config:
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # Weather strategy
+    weather_min_edge: float = float(os.getenv("WEATHER_MIN_EDGE", "0.50"))
+    weather_cities: list = field(
+        default_factory=lambda: os.getenv("WEATHER_CITIES", "Chicago,New York,Los Angeles").split(",")
+    )
+
     # API endpoints
     clob_api_url: str = "https://clob.polymarket.com"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
