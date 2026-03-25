@@ -107,22 +107,26 @@ class PolymarketBot:
         size = signal_data["size"]
         reason = signal_data.get("reason", "")
 
-        logger.info("Signal: %s %s %.2f @ $%.4f – %s", action, token_id[:12], size, price, reason)
+        logger.info("Signal: %s %s %.2f @ $%.4f - %s", action, token_id[:12], size, price, reason)
 
-        if action == "BUY":
-            if not self.risk.can_open_position(size, price):
-                return
-            result = self.client.buy(token_id, price, size)
-            if result is not None:
-                self.risk.register_position(
-                    token_id, "BUY", price, size,
-                    market_name=market_info.get("question", ""),
-                )
+        try:
+            if action == "BUY":
+                if not self.risk.can_open_position(size, price):
+                    return
+                result = self.client.buy(token_id, price, size)
+                if result is not None:
+                    self.risk.register_position(
+                        token_id, "BUY", price, size,
+                        market_name=market_info.get("question", ""),
+                    )
 
-        elif action == "SELL":
-            result = self.client.sell(token_id, price, size)
-            if result is not None:
-                self.risk.close_position(token_id)
+            elif action == "SELL":
+                result = self.client.sell(token_id, price, size)
+                if result is not None:
+                    self.risk.close_position(token_id)
+
+        except Exception as e:
+            logger.warning("Order failed for %s: %s", token_id[:12], e)
 
     def _check_risk(self):
         """Check all positions for stop-loss and take-profit."""
