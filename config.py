@@ -41,11 +41,20 @@ class Config:
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # AI filter (Claude analysis before trading)
+    claude_api_key: str = os.getenv("CLAUDE_API_KEY", "")
+    use_ai_filter: bool = os.getenv("USE_AI_FILTER", "true").lower() == "true"
+    min_confidence: float = float(os.getenv("MIN_CONFIDENCE", "0.70"))
+
     # Weather strategy
     weather_min_edge: float = float(os.getenv("WEATHER_MIN_EDGE", "0.50"))
     weather_cities: list = field(
         default_factory=lambda: os.getenv("WEATHER_CITIES", "Chicago,New York,Los Angeles").split(",")
     )
+
+    # Polling / WebSocket
+    use_websocket: bool = os.getenv("USE_WEBSOCKET", "true").lower() == "true"
+    poll_interval: int = int(os.getenv("POLL_INTERVAL", "15"))
 
     # API endpoints
     clob_api_url: str = "https://clob.polymarket.com"

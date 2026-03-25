@@ -11,6 +11,8 @@ from client import PolymarketClient
 from risk import RiskManager
 from strategies import MomentumStrategy, MarketMakingStrategy, ValueStrategy, Strategy
 from strategy_weather import WeatherStrategy
+from ai_filter import analyze_trade
+from ws_feed import MarketFeed
 from dashboard import Dashboard
 from logger import setup_logger
 
@@ -29,6 +31,7 @@ class PolymarketBot:
         self.strategies: list[Strategy] = []
         self.running = False
         self.dashboard = Dashboard(self.config)
+        self._ws_feed: MarketFeed | None = None
         self._setup_signal_handlers()
 
     def _setup_signal_handlers(self):
@@ -45,16 +48,25 @@ class PolymarketBot:
 
     # ── Main Loop ─────────────────────────────────────────────────
 
-    def run(self, interval: int = 30):
+    def run(self, interval: int = 15):
         """Run the bot with the given polling interval (seconds)."""
+        interval = self.config.poll_interval
         logger.info("Polymarket Trading Bot starting (interval=%ds)", interval)
 
         self._load_positions()
         self.running = True
 
+        # Start WebSocket feed if enabled
+        if self.config.use_websocket:
+            self._ws_feed = MarketFeed()
+            self._ws_feed.start()
+            self.dashboard.log_info("WebSocket feed iniciado")
+
+        ai_status = "AI ON" if (self.config.use_ai_filter and self.config.claude_api_key) else "AI OFF"
+        ws_status = "WS" if self.config.use_websocket else f"Poll {interval}s"
         self.dashboard.log_info(
             f"Bot iniciado | {len(self.strategies)} estrategias | "
-            f"{'DRY RUN' if self.config.dry_run else 'LIVE'}"
+            f"{'DRY RUN' if self.config.dry_run else 'LIVE'} | {ai_status} | {ws_status}"
         )
 
         self.dashboard.start()
@@ -80,6 +92,8 @@ class PolymarketBot:
                     self.dashboard.update(self.risk, self._safe_midpoint)
                     time.sleep(1)
         finally:
+            if self._ws_feed:
+                self._ws_feed.stop()
             self.dashboard.stop()
 
         logger.info("Bot stopped.")
@@ -140,7 +154,7 @@ class PolymarketBot:
                 self._execute_signal(token_id, sig, market_info)
 
     def _execute_signal(self, token_id: str, signal_data: dict, market_info: dict):
-        """Execute a trade signal after risk checks."""
+        """Execute a trade signal after risk checks and AI validation."""
         action = signal_data["action"]
         price = signal_data["price"]
         size = signal_data["size"]
@@ -156,6 +170,40 @@ class PolymarketBot:
                         f"Exposicion ${self.risk.total_exposure:.2f} + ${size * price:.2f} > max ${self.config.max_position_size:.2f}"
                     )
                     return
+
+                # AI filter – ask Claude before executing BUY
+                volume = float(market_info.get("volume", 0) or 0)
+                try:
+                    price_data = self.client.get_price(token_id)
+                    spread = price_data["spread"]
+                except Exception:
+                    spread = 0.0
+
+                ai_result = analyze_trade(
+                    self.config,
+                    market_name=market_info.get("question", "Unknown"),
+                    action=action,
+                    price=price,
+                    volume=volume,
+                    spread=spread,
+                    reason=reason,
+                )
+
+                if ai_result["confidence"] < self.config.min_confidence:
+                    self.dashboard.log_rejected(
+                        f"AI: conf {ai_result['confidence']:.0%} < {self.config.min_confidence:.0%} | {ai_result['reasoning'][:40]}"
+                    )
+                    logger.info(
+                        "AI filter rejected %s: confidence=%.2f, reason=%s",
+                        token_id[:12], ai_result["confidence"], ai_result["reasoning"],
+                    )
+                    return
+
+                if ai_result["recommendation"] == "SKIP":
+                    self.dashboard.log_rejected(f"AI: SKIP | {ai_result['reasoning'][:50]}")
+                    logger.info("AI filter SKIP for %s: %s", token_id[:12], ai_result["reasoning"])
+                    return
+
                 result = self.client.buy(token_id, price, size)
                 if result is not None:
                     self.risk.register_position(
@@ -269,7 +317,7 @@ def main():
         cities=[c.strip() for c in config.weather_cities],
     ))
 
-    bot.run(interval=30)
+    bot.run(interval=config.poll_interval)
 
 
 if __name__ == "__main__":
