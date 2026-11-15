@@ -1,0 +1,3 @@
+[submodule "wacrawl"]
+	path = wacrawl
+	url = https://github.com/openclaw/wacrawl.git
